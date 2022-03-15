@@ -13,11 +13,12 @@ contract NFT is ERC721, Ownable {
     using Counters for Counters.Counter;
     Counters.Counter _tokenId;
     address public minter;
+    mapping(uint256 => string) tokenUriById;
 
     constructor() ERC721("Basic NFT", "BNFT") {}
 
     modifier onlyMinter() {
-        require(msg.sender == minter, "Only minter can call this function");
+        require(msg.sender == minter, "Only minter can mint tokens");
         _;
     }
 
@@ -26,11 +27,17 @@ contract NFT is ERC721, Ownable {
         return true;
     }
 
-    function mint(address addr) external returns(bool) {
+    function mint(string memory tokenURI, address addr) external onlyMinter returns(bool) {
         _safeMint(addr, _tokenId.current());
+        tokenUriById[_tokenId.current()] = tokenURI;
         emit Transfer(address(0), addr, _tokenId.current());
          _tokenId.increment();
         return true;
+    }
+
+    function tokenURI(uint256 tokenId) public view override returns(string memory) {
+        string memory tokenUri = string(abi.encodePacked(tokenUriById[_tokenId.current()], Strings.toString(tokenId), ".json"));
+        return tokenUri;
     }
 
     function destroyContract() external onlyOwner {
