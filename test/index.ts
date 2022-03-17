@@ -140,9 +140,50 @@ describe("Auctions: Marketplace, ERC20 Token, NFT", function () {
 
   it("Should list item on auction", async function () {
     await marketplace.listItemOnAuction(0, TEN_HUMAN_READABLE_ERC20_TOKENS);
+    //auction should exist
+    const auction0 = await marketplace.auctionsByTokenId(0, 0);
+    expect(auction0.startedBy).to.be.equal(signers[0].address);
+  });
 
-    await marketplace.auctionsByTokenId(0, 0);
-
+  it("Should make bid", async function () {
+    await marketplace.listItemOnAuction(0, TEN_HUMAN_READABLE_ERC20_TOKENS);
     
+    const seller = signers[1];
+    const bidder = signers[0];
+
+    // nft with id0 belongs to signer1
+    // allow Marketplace to manage nft0
+    await marketToken.connect(bidder).approve(marketplace.address, TEN_HUMAN_READABLE_ERC20_TOKENS);
+    await marketplace.makeBid(0, TEN_HUMAN_READABLE_ERC20_TOKENS);
+
+    // bid should be registered
+    const auction = await marketplace.auctionsByTokenId(0, 0);
+    expect(auction.highestBid).to.be.equal(TEN_HUMAN_READABLE_ERC20_TOKENS);
+    expect(auction.highestBidder).to.be.equal(bidder.address);
+  });
+
+  it("Should cancel auction", async function () {
+    await marketplace.listItemOnAuction(0, TEN_HUMAN_READABLE_ERC20_TOKENS);
+    await expect((await marketplace.connect(signers[2])).cancelAuction(0)).to.be.revertedWith("Only auction owner can cancel it");
+
+    // nft with id0 belongs to signer1
+    // allow Marketplace to manage nft0
+    await marketplace.cancelAuction(0);
+
+    // auction should still exist, but its status sgould be CANCELED
+    const auction = await marketplace.auctionsByTokenId(0, 0);
+    expect(auction.status).to.be.equal(1); // 1 - CANCELED
+  });
+
+  it("Should finish auction", async function () {
+    await marketplace.listItemOnAuction(0, TEN_HUMAN_READABLE_ERC20_TOKENS);
+
+    // nft with id0 belongs to signer1
+    // allow Marketplace to manage nft0
+    await marketplace.cancelAuction(0);
+
+    // auction should still exist, but its status sgould be CANCELED
+    const auction = await marketplace.auctionsByTokenId(0, 0);
+    expect(auction.status).to.be.equal(1); // 1 - CANCELED
   });
 });

@@ -13,6 +13,9 @@ contract Marketplace is Ownable {
     event SaleCreated();
     event SaleCanceled();
     event SaleFinished();
+    event AuctionCreated();
+    event AuctionCanceled();
+    event AuctionFinished();
 
     enum Status {
         ONGOING, CANCELED, FINISHED
@@ -23,6 +26,7 @@ contract Marketplace is Ownable {
         address startedBy;
         uint256 highestBid;
         address highestBidder;
+        uint256 bidsCount;
         Status status;
     }
 
@@ -39,6 +43,11 @@ contract Marketplace is Ownable {
     constructor(address _nft, address _erc20) {
         NFT = _nft;
         ERC20Token = _erc20;
+    }
+
+    modifier onlyOngoing(uint256 tokenId) {
+        require(condition);
+        _;
     }
 
     modifier onlyValidSale(uint256 tokenId) {
@@ -110,30 +119,62 @@ contract Marketplace is Ownable {
             startedBy: msg.sender,
             highestBid: 0,
             highestBidder: address(0),
+            bidsCount: 0,
             status: Status.ONGOING
         });
         auctionsByTokenId[tokenId].push(auction);
     }
 
     // -Функция makeBid() - сделать ставку на предмет аукциона с определенным id.
-    /// функция повышения ставки лота с ещлутШв
+    /// функция повышения ставки лота с tokenId
     /// с пользователя списываются токены и заморажиают на контракте
     //// если ставка не первая то предыдущему пользователю возвращаются его замороенные токены
-    // function makeBid(uint256 tokenId, uint256 price) external {
+    function makeBid(uint256 tokenId, uint256 price) external {
+        require(tokenId < auctionsByTokenId[tokenId].length, "No auction with token found");
+        Auction[] storage auctions = auctionsByTokenId[tokenId];
+        require(price > auctions[auctions.length - 1].highestBid, "New bid must be higher than current");
+        require(auctions[auctions.length - 1].status == Status.ONGOING, "Auction has ended");
 
-    // }
+        if(auctions[auctions.length - 1].highestBid != 0 && auctions[auctions.length - 1].highestBidder == msg.sender) {
+            revert();
+        }
+
+        (bool success, bytes memory returnedData) = ERC20Token.call{value:0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", msg.sender, address(this), price));
+
+        if(auctions[auctions.length - 1].highestBid > 0) {
+            (bool success2, bytes memory returnedData2) = ERC20Token.call{value:0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", address(this), auctions[auctions.length - 1].highestBidder, auctions[auctions.length - 1].highestBid));
+        }
+
+        auctions[auctions.length - 1].highestBid = price;
+        auctions[auctions.length - 1].highestBidder = msg.sender;
+        auctions[auctions.length - 1] += 1;
+    }
 
     // //-Функция finishAuction() - завершить аукцион и отправить НФТ победителю
     //// NFT идет последнему биддеру, а токены продавцу
-    // function finishAuction(uint256 tokenId) external {
-    //     auctions[_auctionId];
-    // }
+    function finishAuction(uint256 tokenId) external {
+        Auction[] storage auctions = auctionsByTokenId[tokenId];
+        require(block.timestamp >= auctions[auctions.length - 1].startedAt + AUCTION_DURATION, "Too early to finish");
+        if(auctions[auctions.length - 1].bidsCount < 2) {
+            (bool success, bytes memory returnedData) = ERC20Token.call{value:0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", address(this), auctions[auctions.length - 1].highestBidder, auctions[auctions.length - 1].highestBid));
+        } else {
+            (bool success, bytes memory returnedData) = ERC20Token.call{value:0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", address(this), auctions[auctions.length - 1].startedBy, auctions[auctions.length - 1].highestBid));
+            (bool success2, bytes memory returnedData2) = NFT.call{value: 0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", address(this), auctions[auctions.length - 1].highestBidder, tokenId));
+        }
+        auctions[auctions.length - 1].status = Status.FINISHED;
+    }
 
-    // //-Функция cancelAuction() - отменить аукцион
-    // function cancelAuction(uint256 tokenId) external {
-    //     require(auctions[_auctionId].startedBy == msg.sender, "Only auction owner can cancel it");
+    //-Функция cancelAuction() - отменить аукцион
+    function cancelAuction(uint256 tokenId) external {
+        Auction[] storage auctions = auctionsByTokenId[tokenId];
+        require(auctions[auctions.length - 1].startedBy == msg.sender, "Only auction owner can cancel it");
+        require(block.timestamp >= auctions[auctions.length - 1].startedAt + AUCTION_DURATION, "Too early to cancel");
+        auctions[auctions.length - 1].status = Status.CANCELED;
 
-    // }
+        if (auctions[auctions.length - 1].highestBid > 0) {
+            (bool success, bytes memory returnedData) = ERC20Token.call{value:0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", address(this), auctions[auctions.length - 1].highestBidder, auctions[auctions.length - 1].highestBid));
+        }
+    }
 
     function destroyContract() external onlyOwner {
         selfdestruct(payable(owner()));
