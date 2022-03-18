@@ -87,7 +87,6 @@ contract Marketplace is Ownable {
         emit SaleCreated(tokenId, price);
     }
 
-    //-Функция buyItem() - покупка предмета.
     function buyItem(uint256 tokenId) external onlyValidTrade(tokenId, "sale") onlyOngoing(tokenId, "sale") {
         Sale[] storage tokenSales = salesByTokenId[tokenId];
         Sale storage lastTokenSale = tokenSales[tokenSales.length - 1];
@@ -97,7 +96,6 @@ contract Marketplace is Ownable {
         emit SaleFinished(tokenId);
     }
 
-    //-Функция cancel() - отмена продажи выставленного предмета / функция отмены продажи NFT, может быть вызвана до момента buyitem
     function cancel(uint256 tokenId) external onlyValidTrade(tokenId, "sale") {
         Sale[] storage tokenSales = salesByTokenId[tokenId];
         Sale storage lastTokenSale = tokenSales[tokenSales.length - 1];
@@ -109,11 +107,6 @@ contract Marketplace is Ownable {
         emit SaleCanceled(tokenId);
     }
 
-    // AUCTION
-
-    //-Функция listItemOnAuction() - выставка предмета на продажу в аукционе.
-    /// функция маркетплейса для выставления ткена на аукцион
-    /// на время проведения аукциона токен отправляется маркетплейсу
     function listItemOnAuction(uint256 tokenId, uint256 minPrice) external {
         Auction memory auction = Auction({        
             startedAt: block.timestamp,
@@ -128,20 +121,11 @@ contract Marketplace is Ownable {
         emit AuctionCreated(tokenId, minPrice);
     }
 
-    // -Функция makeBid() - сделать ставку на предмет аукциона с определенным id.
-    /// функция повышения ставки лота с tokenId
-    /// с пользователя списываются токены и заморажиают на контракте
-    //// если ставка не первая то предыдущему пользователю возвращаются его замороенные токены
-    function makeBid(uint256 tokenId, uint256 price) external {
-        require(tokenId < auctionsByTokenId[tokenId].length, "No auction with token found");
+    function makeBid(uint256 tokenId, uint256 price) external onlyValidTrade(tokenId, "auction") {
         Auction[] storage auctions = auctionsByTokenId[tokenId];
         Auction storage auction = auctions[auctions.length - 1];
         require(price > auction.highestBid, "New bid must be higher than current");
         require(auction.status == Status.ONGOING, "Auction has ended");
-
-        if(auction.highestBid != 0 && auction.highestBidder == msg.sender) {
-            revert();
-        }
 
         ERC20Token.call{value:0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", msg.sender, address(this), price));
 
@@ -154,28 +138,24 @@ contract Marketplace is Ownable {
         auction.bidsCount += 1;
     }
 
-    // //-Функция finishAuction() - завершить аукцион и отправить НФТ победителю
-    //// NFT идет последнему биддеру, а токены продавцу
     function finishAuction(uint256 tokenId) external {
         Auction[] storage auctions = auctionsByTokenId[tokenId];
         Auction storage auction = auctions[auctions.length - 1];
         require(block.timestamp >= auction.startedAt + AUCTION_DURATION, "Too early to finish");
 
-        // just declare auction as finished and return unsold nft to seller
         if(auction.bidsCount == 0) {
+            // just declare auction as finished and return unsold nft to seller
             NFT.call{value: 0}(abi.encodeWithSignature("transfer(address,uint256)", auction.startedBy, tokenId));
             auction.status = Status.FINISHED;
             emit AuctionFinished(tokenId, auction.highestBid);
-        }
-        // return everything to everybody
-        else if(auction.bidsCount == 1) {
+        } else if(auction.bidsCount == 1) {
+            // return everything to everybody
             ERC20Token.call{value:0}(abi.encodeWithSignature("transfer(address,uint256)", auction.highestBidder, auction.highestBid));
             NFT.call{value: 0}(abi.encodeWithSignature("transfer(address,uint256)", auction.startedBy, tokenId));
             auction.status = Status.FINISHED;
             emit AuctionFinished(tokenId, auction.highestBid);
-        }
-        // send resulted cnfigurations to both
-        else {
+        } else {
+            // send resulted cnfigurations to both
             ERC20Token.call{value:0}(abi.encodeWithSignature("transfer(address,uint256)", auction.startedBy, auction.highestBid));
             NFT.call{value: 0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", address(this), auction.highestBidder, tokenId));
             auction.status = Status.FINISHED;
@@ -183,7 +163,6 @@ contract Marketplace is Ownable {
         }
     }
 
-    //-Функция cancelAuction() - отменить аукцион
     function cancelAuction(uint256 tokenId) external {
         Auction[] storage auctions = auctionsByTokenId[tokenId];
         Auction storage auction = auctions[auctions.length - 1];
@@ -201,8 +180,4 @@ contract Marketplace is Ownable {
     function destroyContract() external onlyOwner {
         selfdestruct(payable(owner()));
     }
-
-    //Аукцион длится 3 дня с момента старта аукциона. В течении этого срока аукцион не может быть отменен. 
-    //В случае если по истечению срока набирается более двух ставок аукцион считается состоявшимся и создатель аукциона его завершает (НФТ переходит к последнему биддеру и токены создателю аукциона). 
-    //В противном случае токены возвращаются последнему биддеру, а НФТ остается у создателя.
 }

@@ -6,8 +6,6 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-import "hardhat/console.sol";
-
 // Some basic ERC721
 contract NFT is ERC721, Ownable {
     using Counters for Counters.Counter;

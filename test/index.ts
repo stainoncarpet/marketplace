@@ -9,12 +9,13 @@
 import { expect } from "chai";
 import { ethers, network } from "hardhat";
 
+const ONE_HUMAN_READABLE_ERC20_TOKENS = ethers.utils.parseUnits("1");
 const TEN_HUMAN_READABLE_ERC20_TOKENS = ethers.utils.parseUnits("10");
 const TWENTY_HUMAN_READABLE_ERC20_TOKENS = ethers.utils.parseUnits("20");
 const ONE_DAY_IN_SECONDS = 86400;
 
 describe("Sales: Marketplace, ERC20 Token, NFT", function () {
-  let Marketplace: any, marketplace: any, signers: any[], metamaskSigner: any, decimalPart: number;
+  let Marketplace: any, marketplace: any, signers: any[], metamaskSigner: any;
   let NFT: any, nft: any;
   let MarketToken: any, marketToken: any;
 
@@ -24,7 +25,7 @@ describe("Sales: Marketplace, ERC20 Token, NFT", function () {
     await nft.deployed();
 
     MarketToken = await ethers.getContractFactory("MarketToken");
-    marketToken = await MarketToken.deploy( ethers.utils.parseUnits("21000000") );
+    marketToken = await MarketToken.deploy();
     await marketToken.deployed();
 
     Marketplace = await ethers.getContractFactory("Marketplace");
@@ -164,15 +165,14 @@ describe("Auctions: Marketplace, ERC20 Token, NFT", function () {
   });
 
   it("Should make bid", async function () {
-    await marketplace.listItemOnAuction(0, TEN_HUMAN_READABLE_ERC20_TOKENS);
+    await marketplace.listItemOnAuction(0, ONE_HUMAN_READABLE_ERC20_TOKENS);
     
-    const seller = signers[1];
-    const bidder = signers[0];
+    const bidder = signers[10];
 
     // nft with id0 belongs to signer1
     // allow Marketplace to manage nft0
     await marketToken.connect(bidder).approve(marketplace.address, TEN_HUMAN_READABLE_ERC20_TOKENS);
-    await marketplace.makeBid(0, TEN_HUMAN_READABLE_ERC20_TOKENS);
+    await marketplace.connect(bidder).makeBid(0, TEN_HUMAN_READABLE_ERC20_TOKENS);
 
     // bid should be registered
     const auction = await marketplace.auctionsByTokenId(0, 0);

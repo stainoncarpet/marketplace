@@ -1,29 +1,29 @@
-// We require the Hardhat Runtime Environment explicitly here. This is optional
-// but useful for running the script in a standalone fashion through `node <script>`.
-//
-// When running the script with `npx hardhat run <script>` you'll find the Hardhat
-// Runtime Environment's members available in the global scope.
+/* eslint-disable node/no-missing-import */
+/* eslint-disable prettier/prettier */
+
 import { ethers } from "hardhat";
 
-async function main() {
-  // Hardhat always runs the compile task when running scripts with its command
-  // line interface.
-  //
-  // If this script is run directly using `node` you may want to call compile
-  // manually to make sure everything is compiled
-  // await hre.run('compile');
+const main = async () => {
+  // 1
+  const MarketToken = await ethers.getContractFactory("MarketToken");
+  const marketToken = await MarketToken.deploy();
+  await marketToken.deployed();
 
-  // We get the contract to deploy
-  const Greeter = await ethers.getContractFactory("Greeter");
-  const greeter = await Greeter.deploy("Hello, Hardhat!");
+  // 2
+  const NFT = await ethers.getContractFactory("NFT");
+  const nft = await NFT.deploy();
+  await nft.deployed();
 
-  await greeter.deployed();
+  // 3
+  const Marketplace = await ethers.getContractFactory("Marketplace");
+  const marketplace = await Marketplace.deploy(nft.address, marketToken.address);
+  await marketplace.deployed();
 
-  console.log("Greeter deployed to:", greeter.address);
+  console.log("MarketToken deployed to:", marketToken.address, "by", await marketToken.signer.getAddress());
+  console.log("NFT deployed to:", nft.address, "by", await nft.signer.getAddress());
+  console.log("Marketplace deployed to:", marketplace.address, "by", await marketplace.signer.getAddress());
 }
 
-// We recommend this pattern to be able to use async/await everywhere
-// and properly handle errors.
 main().catch((error) => {
   console.error(error);
   process.exitCode = 1;

@@ -6,12 +6,10 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-import "hardhat/console.sol";
-
 // Some basic ERC20
 contract MarketToken is ERC20, Ownable {
-    constructor(uint256 initialSupply) ERC20("MarketToken", "MTN") {
-        _mint(msg.sender, initialSupply);
+    constructor() ERC20("MarketToken", "MTN") {
+        _mint(msg.sender, 21000000000000);
     }
 
     // mints 1 token when called, no questions asked

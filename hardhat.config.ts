@@ -12,7 +12,6 @@ import "hardhat-gas-reporter";
 import "solidity-coverage";
 
 dotenv.config();
-// runTasks();
 
 declare global {
   namespace NodeJS {
@@ -27,29 +26,31 @@ declare global {
   }
 }
 
-task("accounts", "Prints the list of accounts", async (taskArgs, hre) => {
-  const accounts = await hre.ethers.getSigners();
+task("mint", "Mints an NFT for sale and auction")
+.addParam("tokenuri", "Token URI")
+.addParam("owner", "The NFT will belong to this address")
+.setAction(async (taskArguments, hre) => {
+    const contractSchema = require("./artifacts/contracts/Marketplace.sol/Marketplace.json");
 
-  for (const account of accounts) {
-    console.log(account.address);
-  }
-});
+    const alchemyProvider = new hre.ethers.providers.AlchemyProvider("rinkeby", process.env.ALCHEMY_KEY);
+    const walletOwner = new hre.ethers.Wallet(process.env.METAMASK_PRIVATE_KEY, alchemyProvider);
+    const marketplaceContractInstance = new hre.ethers.Contract(taskArguments.staker, contractSchema.abi, walletOwner);
+
+    const mintTx = await marketplaceContractInstance.createItem(taskArguments.tokenuri, taskArguments.owner);
+
+    console.log("Receipt: ", mintTx);
+})
+;
 
 const config: HardhatUserConfig = {
   solidity: "0.8.11",
   networks: {
     rinkeby: {
       url: process.env.RINKEBY_URL,
-      accounts: [],
+      accounts: [process.env.METAMASK_PRIVATE_KEY],
       gas: 2100000,
       gasPrice: 8000000000
     },
-    // hardhat: {
-    //   forking: {
-    //     url: process.env.RINKEBY_URL,
-    //     blockNumber: 10293822,
-    //   }
-    // }
   },
   gasReporter: {
     enabled: process.env.REPORT_GAS !== undefined,
