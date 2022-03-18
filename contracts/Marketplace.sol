@@ -3,19 +3,18 @@
 pragma solidity >=0.8.11 <0.9.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "hardhat/console.sol";
 
 contract Marketplace is Ownable {
     uint256 public constant AUCTION_DURATION = 3 days;
     address public NFT;
     address public ERC20Token;
 
-    event SaleCreated();
-    event SaleCanceled();
-    event SaleFinished();
-    event AuctionCreated();
-    event AuctionCanceled();
-    event AuctionFinished();
+    event SaleCreated(uint256 tokenId, uint256 price);
+    event SaleCanceled(uint256 tokenId);
+    event SaleFinished(uint256 tokenId);
+    event AuctionCreated(uint256 tokenId, uint256 minPrice);
+    event AuctionCanceled(uint256 tokenId);
+    event AuctionFinished(uint256 tokenId, uint256 price);
 
     enum Status {
         ONGOING, CANCELED, FINISHED
@@ -45,36 +44,39 @@ contract Marketplace is Ownable {
         ERC20Token = _erc20;
     }
 
-    modifier onlyOngoing(uint256 tokenId) {
-        require(condition);
+    modifier onlyOngoing(uint256 tokenId, string memory tradeType) {
+        if(keccak256(abi.encodePacked(tradeType)) == keccak256(abi.encodePacked("auction"))) {
+            Auction[] memory auctions = auctionsByTokenId[tokenId];
+            Auction memory auction = auctions[auctions.length - 1];
+            require(auction.status == Status.ONGOING, "Incorrect timing");
+        } else if(keccak256(abi.encodePacked(tradeType)) == keccak256(abi.encodePacked("sale"))) {
+            Sale[] memory sales = salesByTokenId[tokenId];
+            Sale memory sale = sales[sales.length - 1];
+            require(sale.status == Status.ONGOING, "Incorrect timing");
+        }
         _;
     }
 
-    modifier onlyValidSale(uint256 tokenId) {
-        require(salesByTokenId[tokenId].length > 0, "Invalid token id");
+    modifier onlyValidTrade(uint256 tokenId, string memory tradeType) {
+        if(keccak256(abi.encodePacked(tradeType)) == keccak256(abi.encodePacked("auction"))) {
+            require(auctionsByTokenId[tokenId].length > 0, "Invalid token id");
+        } else if(keccak256(abi.encodePacked(tradeType)) == keccak256(abi.encodePacked("sale"))) {
+            require(salesByTokenId[tokenId].length > 0, "Invalid token id");
+        }
+        
         _;
     }
 
-    //-Функция createItem() - создание нового предмета, обращается к контракту NFT и вызывает функцию mint. 
-    // / функция смарт контракта маркетплейса для создания NFT
     function createItem(string memory tokenURI, address owner) external {
         mint(tokenURI, owner);
     }
 
-    //-Функция mint(), доступ к которой должен иметь только контракт маркетплейса 
-    // / функция 721 и 1155 для минта нового NFT доступ должен быть только у контракта маркетплйеса
     function mint(string memory tokenURI, address owner) private {
-        (bool success, bytes memory returnedData) = NFT.call{value: 0}(abi.encodeWithSignature("mint(string,address)", tokenURI, owner));
+        NFT.call{value: 0}(abi.encodeWithSignature("mint(string,address)", tokenURI, owner));
     }
 
-    // SALE
-    // продажа осуществляется за определенный токен ERC20
-    //-Функция listItem() - выставка на продажу предмета. 
-    // / функция маркетплеса для выставления NFT на продажу
-    // на время листинга NFT отправляется на адрес маркетплейса
     function listItem(uint256 tokenId, uint256 price) external {
-        (bool success, bytes memory returnedData) = NFT.call{value: 0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", msg.sender, address(this), tokenId));
-        require(success, "Failed to list item");
+        NFT.call{value: 0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", msg.sender, address(this), tokenId));
         Sale memory sale = Sale({
             startedAt: block.timestamp,
             startedBy: msg.sender,
@@ -82,30 +84,29 @@ contract Marketplace is Ownable {
             status: Status.ONGOING
         });
         salesByTokenId[tokenId].push(sale);
+        emit SaleCreated(tokenId, price);
     }
 
     //-Функция buyItem() - покупка предмета.
-    function buyItem(uint256 tokenId) external onlyValidSale(tokenId) {
+    function buyItem(uint256 tokenId) external onlyValidTrade(tokenId, "sale") onlyOngoing(tokenId, "sale") {
         Sale[] storage tokenSales = salesByTokenId[tokenId];
         Sale storage lastTokenSale = tokenSales[tokenSales.length - 1];
-        require(lastTokenSale.status == Status.ONGOING, "Sale is not ongoing");
-
-        (bool success, bytes memory returnedData) = NFT.call{value: 0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", address(this), msg.sender, tokenId));
-        (bool success2, bytes memory returnedData2) = ERC20Token.call{value:0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", msg.sender, lastTokenSale.startedBy, lastTokenSale.price));
-        require(success && success2, "Transaction failed");
+        NFT.call{value: 0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", address(this), msg.sender, tokenId));
+        ERC20Token.call{value:0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", msg.sender, lastTokenSale.startedBy, lastTokenSale.price));
         lastTokenSale.status = Status.FINISHED;
+        emit SaleFinished(tokenId);
     }
 
     //-Функция cancel() - отмена продажи выставленного предмета / функция отмены продажи NFT, может быть вызвана до момента buyitem
-    function cancel(uint256 tokenId) external onlyValidSale(tokenId) {
+    function cancel(uint256 tokenId) external onlyValidTrade(tokenId, "sale") {
         Sale[] storage tokenSales = salesByTokenId[tokenId];
         Sale storage lastTokenSale = tokenSales[tokenSales.length - 1];
         require(lastTokenSale.status == Status.ONGOING, "Sale cannot be canceled");
         require(lastTokenSale.startedBy == msg.sender, "Only seller can cancel offering");
 
-        (bool success, bytes memory returnedData) = NFT.call{value: 0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", address(this), lastTokenSale.startedBy, tokenId));
-        require(success, "Transaction failed");
+        NFT.call{value: 0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", address(this), lastTokenSale.startedBy, tokenId));
         lastTokenSale.status = Status.CANCELED;
+        emit SaleCanceled(tokenId);
     }
 
     // AUCTION
@@ -123,6 +124,8 @@ contract Marketplace is Ownable {
             status: Status.ONGOING
         });
         auctionsByTokenId[tokenId].push(auction);
+        NFT.call{value: 0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", msg.sender, address(this), tokenId));
+        emit AuctionCreated(tokenId, minPrice);
     }
 
     // -Функция makeBid() - сделать ставку на предмет аукциона с определенным id.
@@ -132,48 +135,67 @@ contract Marketplace is Ownable {
     function makeBid(uint256 tokenId, uint256 price) external {
         require(tokenId < auctionsByTokenId[tokenId].length, "No auction with token found");
         Auction[] storage auctions = auctionsByTokenId[tokenId];
-        require(price > auctions[auctions.length - 1].highestBid, "New bid must be higher than current");
-        require(auctions[auctions.length - 1].status == Status.ONGOING, "Auction has ended");
+        Auction storage auction = auctions[auctions.length - 1];
+        require(price > auction.highestBid, "New bid must be higher than current");
+        require(auction.status == Status.ONGOING, "Auction has ended");
 
-        if(auctions[auctions.length - 1].highestBid != 0 && auctions[auctions.length - 1].highestBidder == msg.sender) {
+        if(auction.highestBid != 0 && auction.highestBidder == msg.sender) {
             revert();
         }
 
-        (bool success, bytes memory returnedData) = ERC20Token.call{value:0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", msg.sender, address(this), price));
+        ERC20Token.call{value:0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", msg.sender, address(this), price));
 
-        if(auctions[auctions.length - 1].highestBid > 0) {
-            (bool success2, bytes memory returnedData2) = ERC20Token.call{value:0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", address(this), auctions[auctions.length - 1].highestBidder, auctions[auctions.length - 1].highestBid));
+        if(auction.highestBid > 0) {
+            ERC20Token.call{value:0}(abi.encodeWithSignature("transfer(address,uint256)", auction.highestBidder, auction.highestBid));
         }
 
-        auctions[auctions.length - 1].highestBid = price;
-        auctions[auctions.length - 1].highestBidder = msg.sender;
-        auctions[auctions.length - 1] += 1;
+        auction.highestBid = price;
+        auction.highestBidder = msg.sender;
+        auction.bidsCount += 1;
     }
 
     // //-Функция finishAuction() - завершить аукцион и отправить НФТ победителю
     //// NFT идет последнему биддеру, а токены продавцу
     function finishAuction(uint256 tokenId) external {
         Auction[] storage auctions = auctionsByTokenId[tokenId];
-        require(block.timestamp >= auctions[auctions.length - 1].startedAt + AUCTION_DURATION, "Too early to finish");
-        if(auctions[auctions.length - 1].bidsCount < 2) {
-            (bool success, bytes memory returnedData) = ERC20Token.call{value:0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", address(this), auctions[auctions.length - 1].highestBidder, auctions[auctions.length - 1].highestBid));
-        } else {
-            (bool success, bytes memory returnedData) = ERC20Token.call{value:0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", address(this), auctions[auctions.length - 1].startedBy, auctions[auctions.length - 1].highestBid));
-            (bool success2, bytes memory returnedData2) = NFT.call{value: 0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", address(this), auctions[auctions.length - 1].highestBidder, tokenId));
+        Auction storage auction = auctions[auctions.length - 1];
+        require(block.timestamp >= auction.startedAt + AUCTION_DURATION, "Too early to finish");
+
+        // just declare auction as finished and return unsold nft to seller
+        if(auction.bidsCount == 0) {
+            NFT.call{value: 0}(abi.encodeWithSignature("transfer(address,uint256)", auction.startedBy, tokenId));
+            auction.status = Status.FINISHED;
+            emit AuctionFinished(tokenId, auction.highestBid);
         }
-        auctions[auctions.length - 1].status = Status.FINISHED;
+        // return everything to everybody
+        else if(auction.bidsCount == 1) {
+            ERC20Token.call{value:0}(abi.encodeWithSignature("transfer(address,uint256)", auction.highestBidder, auction.highestBid));
+            NFT.call{value: 0}(abi.encodeWithSignature("transfer(address,uint256)", auction.startedBy, tokenId));
+            auction.status = Status.FINISHED;
+            emit AuctionFinished(tokenId, auction.highestBid);
+        }
+        // send resulted cnfigurations to both
+        else {
+            ERC20Token.call{value:0}(abi.encodeWithSignature("transfer(address,uint256)", auction.startedBy, auction.highestBid));
+            NFT.call{value: 0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", address(this), auction.highestBidder, tokenId));
+            auction.status = Status.FINISHED;
+            emit AuctionFinished(tokenId, auction.highestBid);
+        }
     }
 
     //-Функция cancelAuction() - отменить аукцион
     function cancelAuction(uint256 tokenId) external {
         Auction[] storage auctions = auctionsByTokenId[tokenId];
-        require(auctions[auctions.length - 1].startedBy == msg.sender, "Only auction owner can cancel it");
-        require(block.timestamp >= auctions[auctions.length - 1].startedAt + AUCTION_DURATION, "Too early to cancel");
-        auctions[auctions.length - 1].status = Status.CANCELED;
+        Auction storage auction = auctions[auctions.length - 1];
 
-        if (auctions[auctions.length - 1].highestBid > 0) {
-            (bool success, bytes memory returnedData) = ERC20Token.call{value:0}(abi.encodeWithSignature("transferFrom(address,address,uint256)", address(this), auctions[auctions.length - 1].highestBidder, auctions[auctions.length - 1].highestBid));
+        require(auction.startedBy == msg.sender, "Only auction owner can cancel it");
+        require(block.timestamp >= auction.startedAt + AUCTION_DURATION, "Too early to cancel");
+        auction.status = Status.CANCELED;
+
+        if (auction.highestBid > 0) {
+            ERC20Token.call{value:0}(abi.encodeWithSignature("transfer(address,uint256)", auction.highestBidder, auction.highestBid));
         }
+        emit AuctionCanceled(tokenId);
     }
 
     function destroyContract() external onlyOwner {
